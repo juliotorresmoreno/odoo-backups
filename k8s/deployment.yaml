@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo-backups
+  labels:
+    app: odoo-backups
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo-backups
+  template:
+    metadata:
+      labels:
+        app: odoo-backups
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: odoo-backups
+          image: jliotorresmoreno/odoo-backups:v1.0.0
+          ports:
+            - containerPort: 3050
+          envFrom:
+            - secretRef:
+                name: odoo-backups-secret
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+              ephemeral-storage: "1Gi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+              ephemeral-storage: "2Gi"
