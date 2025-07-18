@@ -46,9 +46,11 @@ func main() {
 	})
 	c.Start()
 
+	handler := handler.ConfigureHandler()
+
 	httpServer := http.Server{
 		Addr:    ":3050",
-		Handler: handler.HttpHandler(),
+		Handler: handler,
 	}
 
 	log.Println(httpServer.ListenAndServe())

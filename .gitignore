@@ -2,3 +2,5 @@
 
 # Ignore Kubernetes secrets
 k8s/secret.yaml
+
+http

@@ -4,16 +4,14 @@ LABEL maintainer="juliotorres"
 
 RUN apt-get update && \
     apt-get install -y \
-    adduser \
     ca-certificates \
     golang-go \
-    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /app
-COPY go.mod /app
-COPY go.sum /app
 WORKDIR /app
+
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . /app

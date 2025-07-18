@@ -1,14 +1,22 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sclient "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	"vitess.io/vitess/go/vt/log"
 )
 
 type StorageClient struct {
@@ -16,7 +24,28 @@ type StorageClient struct {
 	Namespace string
 }
 
+func GetClientSet() (*k8sclient.Clientset, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		home := os.Getenv("HOME")
+		kubeconfig := filepath.Join(home, ".kube", "config")
+		config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return k8sclient.NewForConfig(config)
+}
+
 func NewStorageClient(clientSet *k8sclient.Clientset, namespace string) *StorageClient {
+	if clientSet == nil {
+		var err error
+		clientSet, err = GetClientSet()
+		if err != nil {
+			log.Fatal(fmt.Sprintf("Failed to create Kubernetes client: %v", err))
+		}
+	}
+
 	return &StorageClient{
 		ClientSet: clientSet,
 		Namespace: namespace,
@@ -65,13 +94,115 @@ func (s *StorageClient) CreatePVC(ctx context.Context, name string, storageClass
 	return nil
 }
 
-func (s *StorageClient) CreateIfNotExistsPVC(ctx context.Context, name string, storageClass string, sizeGi int) error {
+func (s *StorageClient) ExistsPVC(ctx context.Context, name string) (bool, error) {
 	_, err := s.ClientSet.CoreV1().PersistentVolumeClaims(s.Namespace).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	if !k8serrors.IsNotFound(err) {
+	return true, nil
+}
+
+func (s *StorageClient) CreateIfNotExistsPVC(ctx context.Context, name string, storageClass string, sizeGi int) error {
+	exists, err := s.ExistsPVC(ctx, name)
+	if err != nil {
 		return err
 	}
+	if exists {
+		return nil
+	}
 	return s.CreatePVC(ctx, name, storageClass, sizeGi)
+}
+
+func (s *StorageClient) DeletePVC(ctx context.Context, name string) error {
+	err := s.ClientSet.CoreV1().PersistentVolumeClaims(s.Namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *StorageClient) GetPVC(ctx context.Context, name string) (*corev1.PersistentVolumeClaim, error) {
+	pvc, err := s.ClientSet.CoreV1().PersistentVolumeClaims(s.Namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, fmt.Errorf("PVC %s not found", name)
+		}
+		return nil, err
+	}
+	return pvc, nil
+}
+
+func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName string, command []string) (string, error) {
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: podName,
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{
+				{
+					Name:    "executor",
+					Image:   "alpine/curl:latest",
+					Command: command,
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "data",
+							MountPath: "/data",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "data",
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: pvcName,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := s.ClientSet.CoreV1().Pods(s.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	for {
+		p, err := s.ClientSet.CoreV1().Pods(s.Namespace).Get(ctx, podName, metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	req := s.ClientSet.CoreV1().Pods(s.Namespace).GetLogs(podName, &corev1.PodLogOptions{})
+	logs, err := req.Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error leyendo logs del pod: %w", err)
+	}
+	defer logs.Close()
+
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, logs)
+	if err != nil {
+		return "", fmt.Errorf("error copiando logs: %w", err)
+	}
+
+	defer func() {
+		_ = s.ClientSet.CoreV1().Pods(s.Namespace).Delete(context.Background(), podName, metav1.DeleteOptions{})
+	}()
+
+	return buf.String(), nil
 }

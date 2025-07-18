@@ -26,6 +26,11 @@ func (c *Config) Load() error {
 		return fmt.Errorf("error loading ADMIN_PASSWORD: %v", err)
 	}
 
+	c.Namespace, err = c.Get("NAMESPACE")
+	if err != nil {
+		return fmt.Errorf("error loading NAMESPACE: %v", err)
+	}
+
 	return nil
 }
 
