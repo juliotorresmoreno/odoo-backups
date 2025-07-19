@@ -2,9 +2,8 @@ package handler
 
 import (
 	"fmt"
+	"io"
 	"net/http"
-	"os"
-	"path"
 
 	"github.com/gorilla/mux"
 )
@@ -18,15 +17,18 @@ func (h *handler) downloadBackupHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	base := os.Getenv("ODOO_BACKUP_PATH")
-	filePath := path.Join(base, dbName, fileName)
-
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		http.Error(w, "Backup file not found", http.StatusNotFound)
+	file, err := h.backup.Download(dbName, fileName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error downloading backup: %v", err), http.StatusInternalServerError)
 		return
 	}
+	defer file.Close()
 
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
 	w.Header().Set("Content-Type", "application/octet-stream")
-	http.ServeFile(w, r, filePath)
+	if _, err := io.Copy(w, file); err != nil {
+		http.Error(w, fmt.Sprintf("Error writing response: %v", err), http.StatusInternalServerError)
+		return
+	}
 }

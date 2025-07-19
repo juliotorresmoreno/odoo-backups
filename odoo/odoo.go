@@ -1,11 +1,11 @@
 package odoo
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/juliotorresmoreno/odoo-backups/db"
 	"github.com/juliotorresmoreno/odoo-backups/storage"
@@ -91,8 +91,6 @@ func (o *OdooAdmin) Backup(dbName string) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	io.Copy(os.Stdout, resp.Body)
-
 	return resp.StatusCode == http.StatusOK, nil
 }
 
@@ -103,7 +101,49 @@ type Backup struct {
 }
 
 func (o *OdooAdmin) ListBackups(dbName string) ([]Backup, error) {
-	var backups []Backup
+	var backups = make([]Backup, 0)
+
+	url := fmt.Sprintf("http://executor-%s.%s:4080/list", dbName, o.Namespace)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return backups, fmt.Errorf("error creating request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return backups, fmt.Errorf("error making request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return backups, fmt.Errorf("error: received status code %d", resp.StatusCode)
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&backups)
+	if err != nil {
+		return backups, fmt.Errorf("error decoding response: %v", err)
+	}
 
 	return backups, nil
+}
+
+func (o *OdooAdmin) Download(dbName, fileName string) (io.ReadCloser, error) {
+	url := fmt.Sprintf("http://executor-%s.%s:4080/download/%s", dbName, o.Namespace, fileName)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("error: received status code %d", resp.StatusCode)
+	}
+
+	return resp.Body, nil
 }
