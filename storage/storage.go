@@ -229,5 +229,27 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, pvcName string) erro
 		return fmt.Errorf("error creando servicio: %w", err)
 	}
 
-	return nil
+	// Esperar a que el pod esté listo
+	watcher, err := s.ClientSet.CoreV1().Pods(s.Namespace).Watch(ctx, metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", name),
+	})
+	if err != nil {
+		return fmt.Errorf("error creando watcher: %w", err)
+	}
+	defer watcher.Stop()
+
+	for event := range watcher.ResultChan() {
+		p, ok := event.Object.(*corev1.Pod)
+		if !ok {
+			continue
+		}
+		switch p.Status.Phase {
+		case corev1.PodRunning, corev1.PodSucceeded:
+			return nil
+		case corev1.PodFailed:
+			return fmt.Errorf("el pod falló: %s", p.Status.Reason)
+		}
+	}
+
+	return fmt.Errorf("el pod nunca llegó a estado Running o Succeeded")
 }
