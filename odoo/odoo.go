@@ -82,12 +82,12 @@ func (o *OdooAdmin) Backup(dbName string) (bool, error) {
 
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
-		return false, fmt.Errorf("error creating request: %v", err)
+		return false, err
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("error making request: %v", err)
+		return false, err
 	}
 	defer resp.Body.Close()
 
