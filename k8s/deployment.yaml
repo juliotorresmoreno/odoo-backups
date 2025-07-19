@@ -18,6 +18,7 @@ spec:
       containers:
         - name: odoo-backups
           image: jliotorresmoreno/odoo-backups:v1.0.0
+          imagePullPolicy: Always
           ports:
             - containerPort: 3050
           envFrom:

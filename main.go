@@ -6,9 +6,9 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/juliotorresmoreno/odoo-backups/backup"
 	"github.com/juliotorresmoreno/odoo-backups/config"
 	"github.com/juliotorresmoreno/odoo-backups/handler"
+	"github.com/juliotorresmoreno/odoo-backups/odoo"
 	_ "github.com/lib/pq"
 	"github.com/robfig/cron/v3"
 )
@@ -26,9 +26,10 @@ func main() {
 		log.Fatal("Failed to load configuration")
 	}
 
-	backup := backup.NewOdooBackup(backup.OdooBackupConfig{
+	backup := odoo.NewOdooAdmin(odoo.OdooAdminConfig{
 		OdooURL:        config.AdminURL,
 		MasterPassword: config.AdminPassword,
+		Namespace:      config.Namespace,
 	})
 
 	// Ejecutar a las 00:00 y 07:00

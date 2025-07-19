@@ -1,19 +1,17 @@
 package storage
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/juliotorresmoreno/odoo-backups/config"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	k8sclient "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -138,22 +136,24 @@ func (s *StorageClient) GetPVC(ctx context.Context, name string) (*corev1.Persis
 	}
 	return pvc, nil
 }
-
-func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName string, command []string) (string, error) {
+func (s *StorageClient) ExecuteWithPVC(ctx context.Context, pvcName string) error {
 	config := config.GetConfig()
-	name := fmt.Sprintf("%s-%s", podName, time.Now().Format("20060102-150405"))
+	name := fmt.Sprintf("executor-%s", pvcName)
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
+			Labels: map[string]string{
+				"app": name,
+			},
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
-					Name:    "executor",
-					Image:   "jliotorresmoreno/odoo-executor:v1.0.0",
-					Command: command,
+					Name:            "executor",
+					Image:           "jliotorresmoreno/odoo-executor:v1.0.0",
+					ImagePullPolicy: corev1.PullAlways,
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "data",
@@ -164,6 +164,9 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName str
 						{Name: "ADMIN_URL", Value: config.AdminURL},
 						{Name: "ADMIN_PASSWORD", Value: config.AdminPassword},
 						{Name: "NAMESPACE", Value: s.Namespace},
+					},
+					Ports: []corev1.ContainerPort{
+						{ContainerPort: 4080},
 					},
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
@@ -191,38 +194,31 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName str
 	}
 
 	_, err := s.ClientSet.CoreV1().Pods(s.Namespace).Create(ctx, pod, metav1.CreateOptions{})
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = s.ClientSet.CoreV1().Pods(s.Namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
-	}()
-
-	for {
-		p, err := s.ClientSet.CoreV1().Pods(s.Namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			return "", err
-		}
-		if p.Status.Phase == corev1.PodSucceeded || p.Status.Phase == corev1.PodFailed {
-			break
-		}
-		time.Sleep(1 * time.Second)
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("error creando pod: %w", err)
 	}
 
-	req := s.ClientSet.CoreV1().Pods(s.Namespace).GetLogs(name, &corev1.PodLogOptions{})
-	logs, err := req.Stream(ctx)
-	if err != nil {
-		return "", fmt.Errorf("error leyendo logs del pod: %w", err)
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app": name,
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Port:       4080,
+					TargetPort: intstr.FromInt(4080),
+				},
+			},
+		},
 	}
-	defer logs.Close()
 
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, logs)
-	if err != nil {
-		return "", fmt.Errorf("error copiando logs: %w", err)
+	_, err = s.ClientSet.CoreV1().Services(s.Namespace).Create(ctx, service, metav1.CreateOptions{})
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return fmt.Errorf("error creando servicio: %w", err)
 	}
 
-	fmt.Println("Pod logs:", name)
-
-	return buf.String(), nil
+	return nil
 }
