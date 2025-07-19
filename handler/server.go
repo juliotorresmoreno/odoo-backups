@@ -18,8 +18,9 @@ import (
 )
 
 type handler struct {
-	storage *storage.StorageClient
-	backup  *backup.OdooBackup
+	storage      *storage.StorageClient
+	backup       *backup.OdooBackup
+	eventManager *EventManager
 }
 
 func ConfigureHandler() http.Handler {
@@ -36,12 +37,14 @@ func ConfigureHandler() http.Handler {
 			Namespace:      config.Namespace,
 			OutputDir:      "/data/odoo-backups",
 		}),
+		eventManager: NewEventManager(),
 	}
 	r := mux.NewRouter()
 
 	r.HandleFunc("/", h.listDatabasesHandler).Methods("GET")
 	r.HandleFunc("/configure", h.configureHandler).Methods("POST")
 	r.HandleFunc("/backup", h.backupHandler).Methods("POST")
+	r.HandleFunc("/event", h.eventHandler).Methods("POST")
 	r.HandleFunc("/backup/{dbname}", h.scanBackupsHandler).Methods("GET")
 	r.HandleFunc("/download/{dbname}/{file}", h.downloadBackupHandler).Methods("GET")
 
@@ -126,38 +129,23 @@ func (h *handler) scanBackupsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	base := os.Getenv("ODOO_BACKUP_PATH")
-	files, err := os.ReadDir(path.Join(base, dbName))
+	eventName := fmt.Sprintf("%s-%s", dbName, time.Now().Format("20060102-150405"))
+	event := make(chan Event)
+	h.eventManager.RegisterHandler(eventName, event)
+	defer h.eventManager.UnregisterHandler(eventName)
+	fmt.Println("Waiting for event:", eventName)
+
+	_, err := h.backup.ListBackups(dbName)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Cannot read dir: %v", err), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	type Backup struct {
-		Name      string `json:"name"`
-		Size      int64  `json:"size"`
-		CreatedAt string `json:"createdAt"`
+	w.Header().Set("Content-Type", "application/json")
+	select {
+	case e := <-event:
+		json.NewEncoder(w).Encode(e.Payload)
+	case <-time.After(30 * time.Second):
+		json.NewEncoder(w).Encode([]interface{}{})
 	}
-	var backups []Backup
-	for _, f := range files {
-		if f.IsDir() || f.Name() == "README.md" {
-			continue
-		}
-		info, err := f.Info()
-		if err != nil {
-			log.Println("stat err:", err)
-			continue
-		}
-		backups = append(backups, Backup{
-			Name:      f.Name(),
-			Size:      info.Size(),
-			CreatedAt: info.ModTime().Format(time.RFC3339),
-		})
-	}
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"files":  backups,
-		"dbname": dbName,
-		"output": base,
-	})
 }

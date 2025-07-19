@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/juliotorresmoreno/odoo-backups/config"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -139,21 +140,39 @@ func (s *StorageClient) GetPVC(ctx context.Context, name string) (*corev1.Persis
 }
 
 func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName string, command []string) (string, error) {
+	config := config.GetConfig()
+	name := fmt.Sprintf("%s-%s", podName, time.Now().Format("20060102-150405"))
+
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: podName,
+			Name: name,
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
 					Name:    "executor",
-					Image:   "alpine/curl:latest",
+					Image:   "jliotorresmoreno/odoo-executor:v1.0.0",
 					Command: command,
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "data",
 							MountPath: "/data",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{Name: "ADMIN_URL", Value: config.AdminURL},
+						{Name: "ADMIN_PASSWORD", Value: config.AdminPassword},
+						{Name: "NAMESPACE", Value: s.Namespace},
+					},
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
 						},
 					},
 				},
@@ -175,9 +194,12 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName str
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		_ = s.ClientSet.CoreV1().Pods(s.Namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
+	}()
 
 	for {
-		p, err := s.ClientSet.CoreV1().Pods(s.Namespace).Get(ctx, podName, metav1.GetOptions{})
+		p, err := s.ClientSet.CoreV1().Pods(s.Namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return "", err
 		}
@@ -187,7 +209,7 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName str
 		time.Sleep(1 * time.Second)
 	}
 
-	req := s.ClientSet.CoreV1().Pods(s.Namespace).GetLogs(podName, &corev1.PodLogOptions{})
+	req := s.ClientSet.CoreV1().Pods(s.Namespace).GetLogs(name, &corev1.PodLogOptions{})
 	logs, err := req.Stream(ctx)
 	if err != nil {
 		return "", fmt.Errorf("error leyendo logs del pod: %w", err)
@@ -200,9 +222,7 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, podName, pvcName str
 		return "", fmt.Errorf("error copiando logs: %w", err)
 	}
 
-	defer func() {
-		_ = s.ClientSet.CoreV1().Pods(s.Namespace).Delete(context.Background(), podName, metav1.DeleteOptions{})
-	}()
+	fmt.Println("Pod logs:", name)
 
 	return buf.String(), nil
 }

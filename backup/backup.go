@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -93,20 +94,45 @@ func (o *OdooBackup) OdooDatabase(dbName string) (string, error) {
 	}
 
 	backupFileName := fmt.Sprintf("%s_%s.%s", dbName, time.Now().Format("20060102_150405"), o.BackupFormat)
-	outputDir := filepath.Join(o.OutputDir, dbName)
-	fullPath := filepath.Join(outputDir, backupFileName)
+	fullPath := filepath.Join(o.OutputDir, backupFileName)
 
-	curlCmd := fmt.Sprintf(
-		`curl -X POST "%s/web/database/backup" -H "Content-Type: application/x-www-form-urlencoded" -H "Accept: application/octet-stream" --data "master_pwd=%s&name=%s&backup_format=%s" --output %s`,
-		o.OdooURL, o.MasterPassword, dbName, o.BackupFormat, fullPath,
-	)
+	backupCmd := fmt.Sprintf("/app/main -backup %s", dbName)
 
-	commands := []string{
-		"mkdir -p " + outputDir,
-		curlCmd,
-		"echo 'Backup completed successfully!'",
-	}
+	commands := []string{"mkdir -p " + o.OutputDir, backupCmd}
 	_, err = o.storageClient.ExecuteWithPVC(context.TODO(), "executor", dbName, commands)
 
 	return fullPath, err
+}
+
+type Backup struct {
+	Name      string `json:"name"`
+	Size      int64  `json:"size"`
+	CreatedAt string `json:"createdAt"`
+}
+
+func (o *OdooBackup) ListBackups(dbName string) ([]Backup, error) {
+	var backups []Backup
+	if o.OdooURL == "" || o.MasterPassword == "" || dbName == "" {
+		return backups, fmt.Errorf("OdooURL, MasterPassword y dbName no pueden estar vacíos")
+	}
+
+	exists, err := o.storageClient.ExistsPVC(context.TODO(), dbName)
+	if !exists || err != nil {
+		return backups, fmt.Errorf("PVC for database '%s' does not exist", dbName)
+	}
+
+	listCmd := "/app/main -list"
+
+	commands := []string{"mkdir -p " + o.OutputDir, listCmd}
+	response, err := o.storageClient.ExecuteWithPVC(context.TODO(), "executor", dbName, commands)
+
+	if err != nil {
+		return backups, fmt.Errorf("error al listar backups: %v", err)
+	}
+
+	fmt.Println(response)
+
+	json.Unmarshal([]byte(response), &backups)
+
+	return backups, nil
 }
