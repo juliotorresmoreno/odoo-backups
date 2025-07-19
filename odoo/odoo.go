@@ -2,8 +2,10 @@ package odoo
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/juliotorresmoreno/odoo-backups/db"
 	"github.com/juliotorresmoreno/odoo-backups/storage"
@@ -53,7 +55,7 @@ func (o *OdooAdmin) AllDatabases() ([]string, error) {
 		return nil, fmt.Errorf("error al listar bases de datos: %v", err)
 	}
 
-	var backups []string
+	var backups = make([]string, 0)
 
 	for _, dbName := range list {
 		if dbName == "postgres" || dbName == "template0" || dbName == "template1" {
@@ -88,6 +90,8 @@ func (o *OdooAdmin) Backup(dbName string) (bool, error) {
 		return false, fmt.Errorf("error making request: %v", err)
 	}
 	defer resp.Body.Close()
+
+	io.Copy(os.Stdout, resp.Body)
 
 	return resp.StatusCode == http.StatusOK, nil
 }

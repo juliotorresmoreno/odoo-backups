@@ -136,9 +136,13 @@ func (s *StorageClient) GetPVC(ctx context.Context, name string) (*corev1.Persis
 	}
 	return pvc, nil
 }
+
 func (s *StorageClient) ExecuteWithPVC(ctx context.Context, pvcName string) error {
 	config := config.GetConfig()
 	name := fmt.Sprintf("executor-%s", pvcName)
+	runAsUser := int64(1000)
+	runAsGroup := int64(1000)
+	fsGroup := int64(1000)
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -149,6 +153,11 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, pvcName string) erro
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsUser:  &runAsUser,
+				RunAsGroup: &runAsGroup,
+				FSGroup:    &fsGroup,
+			},
 			Containers: []corev1.Container{
 				{
 					Name:            "executor",

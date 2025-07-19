@@ -4,6 +4,8 @@ metadata:
   name: odoo-backups
   labels:
     app: odoo-backups
+  namespace: backups
+
 spec:
   replicas: 1
   selector:
@@ -14,7 +16,8 @@ spec:
       labels:
         app: odoo-backups
     spec:
-      automountServiceAccountToken: false
+      serviceAccountName: odoo-backups-sa
+      automountServiceAccountToken: true
       containers:
         - name: odoo-backups
           image: jliotorresmoreno/odoo-backups:v1.0.0
