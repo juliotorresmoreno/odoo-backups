@@ -2,8 +2,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: odoo-backups
-  labels:
-    app: odoo-backups
   namespace: backups
 
 spec:
@@ -23,7 +21,7 @@ spec:
           image: jliotorresmoreno/odoo-backups:v1.0.0
           imagePullPolicy: Always
           ports:
-            - containerPort: 3050
+            - containerPort: 8080
           envFrom:
             - secretRef:
                 name: odoo-backups-secret

@@ -11,6 +11,6 @@ RUN chmod +x /app/odoo-backups
 
 USER ubuntu
 
-EXPOSE 3050
+EXPOSE 8080
 
 ENTRYPOINT [ "/app/odoo-backups" ]

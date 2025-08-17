@@ -50,7 +50,7 @@ func main() {
 	handler := handler.ConfigureHandler()
 
 	httpServer := http.Server{
-		Addr:    ":3050",
+		Addr:    ":8080",
 		Handler: handler,
 	}
 
