@@ -8,6 +8,6 @@ spec:
     app: odoo-backups
   ports:
     - name: service
-      port: 4080
+      port: 3050
       targetPort: 3050
 

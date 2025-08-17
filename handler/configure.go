@@ -32,6 +32,10 @@ func (h *handler) configureHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = h.storage.ExecuteWithPVC(context.TODO(), req.DBName)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to execute with PVC: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	log.Printf("PVC created for database %s with size %dGi", req.DBName, req.Size)
 	w.WriteHeader(http.StatusCreated)

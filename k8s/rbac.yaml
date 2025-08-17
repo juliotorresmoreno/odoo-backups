@@ -5,5 +5,5 @@ metadata:
   namespace: backups
 rules:
 - apiGroups: [""]
-  resources: ["pods", "persistentvolumeclaims"]
-  verbs: ["get", "list", "create", "delete"]
+  resources: ["pods", "services", "persistentvolumeclaims"]
+  verbs: ["get", "list", "create", "delete", "watch"]

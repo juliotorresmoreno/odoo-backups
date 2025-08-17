@@ -224,11 +224,6 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, pvcName string) erro
 		},
 	}
 
-	_, err = s.ClientSet.CoreV1().Services(s.Namespace).Create(ctx, service, metav1.CreateOptions{})
-	if err != nil && !k8serrors.IsAlreadyExists(err) {
-		return fmt.Errorf("error creando servicio: %w", err)
-	}
-
 	// Esperar a que el pod esté listo
 	watcher, err := s.ClientSet.CoreV1().Pods(s.Namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", name),
@@ -245,6 +240,11 @@ func (s *StorageClient) ExecuteWithPVC(ctx context.Context, pvcName string) erro
 		}
 		switch p.Status.Phase {
 		case corev1.PodRunning, corev1.PodSucceeded:
+			_, err = s.ClientSet.CoreV1().Services(s.Namespace).Create(ctx, service, metav1.CreateOptions{})
+			if err != nil && !k8serrors.IsAlreadyExists(err) {
+				return fmt.Errorf("error creando servicio: %w", err)
+			}
+
 			return nil
 		case corev1.PodFailed:
 			return fmt.Errorf("el pod falló: %s", p.Status.Reason)
