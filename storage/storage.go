@@ -59,7 +59,9 @@ func (s *StorageClient) ListPVCs(ctx context.Context) ([]corev1.PersistentVolume
 	return pvcs.Items, nil
 }
 
-func (s *StorageClient) CreatePVC(ctx context.Context, name string, storageClass string, sizeGi int) error {
+func (s *StorageClient) CreateLocalPVC(ctx context.Context, name string, sizeGi int) error {
+	storageClass := "local-storage"
+
 	storageQuantity, err := resource.ParseQuantity(fmt.Sprintf("%dGi", sizeGi))
 	if err != nil {
 		return err
@@ -83,10 +85,7 @@ func (s *StorageClient) CreatePVC(ctx context.Context, name string, storageClass
 	}
 
 	_, err = s.ClientSet.CoreV1().PersistentVolumeClaims(s.Namespace).Create(ctx, pvc, metav1.CreateOptions{})
-	if err != nil {
-		if k8serrors.IsAlreadyExists(err) {
-			return nil
-		}
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
 		return err
 	}
 
@@ -104,7 +103,7 @@ func (s *StorageClient) ExistsPVC(ctx context.Context, name string) (bool, error
 	return true, nil
 }
 
-func (s *StorageClient) CreateIfNotExistsPVC(ctx context.Context, name string, storageClass string, sizeGi int) error {
+func (s *StorageClient) CreateIfNotExistsPVC(ctx context.Context, name string, sizeGi int) error {
 	exists, err := s.ExistsPVC(ctx, name)
 	if err != nil {
 		return err
@@ -112,7 +111,7 @@ func (s *StorageClient) CreateIfNotExistsPVC(ctx context.Context, name string, s
 	if exists {
 		return nil
 	}
-	return s.CreatePVC(ctx, name, storageClass, sizeGi)
+	return s.CreateLocalPVC(ctx, name, sizeGi)
 }
 
 func (s *StorageClient) DeletePVC(ctx context.Context, name string) error {

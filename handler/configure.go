@@ -25,7 +25,7 @@ func (h *handler) configureHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.storage.CreatePVC(context.TODO(), req.DBName, "longhorn", req.Size)
+	err := h.storage.CreateLocalPVC(context.TODO(), req.DBName, req.Size)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
