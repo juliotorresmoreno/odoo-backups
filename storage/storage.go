@@ -59,7 +59,7 @@ func (s *StorageClient) ListPVCs(ctx context.Context) ([]corev1.PersistentVolume
 	return pvcs.Items, nil
 }
 
-func (s *StorageClient) CreateLocalPVC(ctx context.Context, name string, sizeGi int) error {
+func (s *StorageClient) CreateLocalPVC(ctx context.Context, name string, sizeGi int, nodeName string) error {
 	storageClass := "local-storage"
 
 	storageQuantity, err := resource.ParseQuantity(fmt.Sprintf("%dGi", sizeGi))
@@ -67,14 +67,53 @@ func (s *StorageClient) CreateLocalPVC(ctx context.Context, name string, sizeGi 
 		return err
 	}
 
+	// Crear PersistentVolume
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pv-" + name,
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				corev1.ResourceStorage: storageQuantity,
+			},
+			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
+			StorageClassName:              storageClass,
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/data/odoo-backups/" + name,
+				},
+			},
+			NodeAffinity: &corev1.VolumeNodeAffinity{
+				Required: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []corev1.NodeSelectorRequirement{
+								{
+									Key:      "kubernetes.io/hostname",
+									Operator: corev1.NodeSelectorOpIn,
+									Values:   []string{nodeName},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err = s.ClientSet.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	// Crear PersistentVolumeClaim
 	pvc := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes: []corev1.PersistentVolumeAccessMode{
-				corev1.ReadWriteOnce,
-			},
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			StorageClassName: &storageClass,
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{
@@ -111,7 +150,7 @@ func (s *StorageClient) CreateIfNotExistsPVC(ctx context.Context, name string, s
 	if exists {
 		return nil
 	}
-	return s.CreateLocalPVC(ctx, name, sizeGi)
+	return s.CreateLocalPVC(ctx, name, sizeGi, "juliotorres-pc")
 }
 
 func (s *StorageClient) DeletePVC(ctx context.Context, name string) error {
